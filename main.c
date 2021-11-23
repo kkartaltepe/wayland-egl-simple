@@ -152,7 +152,6 @@ static void wl_surface_frame_done(void *data, struct wl_callback *cb,
   glClearColor(0.2, 0.4, 0.9, 1.0);
   glClear(GL_COLOR_BUFFER_BIT);
   eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
-  // wl_surface_commit(WSI.surface); // kick off a frame.
 }
 
 static const struct wl_callback_listener wl_surface_frame_callback_listener = {
@@ -205,18 +204,24 @@ int main(int argc, char *argv[]) {
   WSI.egl.context = eglCreateContext(WSI.egl.display, configs[0],
                                      EGL_NO_CONTEXT, context_attribs);
   assert(WSI.egl.context);
-  assert(eglMakeCurrent(WSI.egl.display, WSI.egl.surface, WSI.egl.surface,
-                        WSI.egl.context));
+  eglMakeCurrent(WSI.egl.display, WSI.egl.surface, WSI.egl.surface,
+                        WSI.egl.context);
 
   // Read to start drawing, kick off the render callback.
   eglSwapInterval(WSI.egl.display, 0); // GO FAST
+  // Draw the next frame.
+  glClearColor(0.2, 0.4, 0.9, 1.0);
+  glClear(GL_COLOR_BUFFER_BIT);
+  // wl_surface_commit(WSI.surface); // commit wont commit our surface now that EGL is attached.
+  eglSwapBuffers(WSI.egl.display, WSI.egl.surface); // commit the frame to begin callbacks.
+
   struct wl_callback *cb = wl_surface_frame(WSI.surface);
   wl_callback_add_listener(cb, &wl_surface_frame_callback_listener, NULL);
-  wl_surface_commit(WSI.surface); // kick off a frame.
 
   // Draw stuff.
   while (!should_exit) {
     // process any pending events from swapbuffers.
+    // wl_display_dispatch_pending(WSI.display);
     wl_display_dispatch(WSI.display);
 
     /*
@@ -228,10 +233,12 @@ int main(int argc, char *argv[]) {
     wl_region_destroy(region);
     */
 
+    /*
     // You can render here directly if you dont use frame callbacks.
-    // glClearColor(0.2, 0.4, 0.9, 1.0);
-    // glClear(GL_COLOR_BUFFER_BIT);
-    // eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
+    glClearColor(0.2, 0.4, 0.9, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
+    */
   }
 
   // TODO: Cleanup.
