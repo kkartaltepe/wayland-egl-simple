@@ -205,24 +205,23 @@ int main(int argc, char *argv[]) {
                                      EGL_NO_CONTEXT, context_attribs);
   assert(WSI.egl.context);
   eglMakeCurrent(WSI.egl.display, WSI.egl.surface, WSI.egl.surface,
-                        WSI.egl.context);
+                 WSI.egl.context);
 
   // Read to start drawing, kick off the render callback.
   eglSwapInterval(WSI.egl.display, 0); // GO FAST
   // Draw the next frame.
   glClearColor(0.2, 0.4, 0.9, 1.0);
   glClear(GL_COLOR_BUFFER_BIT);
-  // wl_surface_commit(WSI.surface); // commit wont commit our surface now that EGL is attached.
-  eglSwapBuffers(WSI.egl.display, WSI.egl.surface); // commit the frame to begin callbacks.
+  // Commit our surface, wl_surface_commit() alone wont work on EGL surfaces.
+  eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
 
   struct wl_callback *cb = wl_surface_frame(WSI.surface);
   wl_callback_add_listener(cb, &wl_surface_frame_callback_listener, NULL);
 
-  // Draw stuff.
-  while (!should_exit) {
-    // process any pending events from swapbuffers.
-    // wl_display_dispatch_pending(WSI.display);
-    wl_display_dispatch(WSI.display);
+  // process any pending events from swapbuffers.
+  // wl_display_dispatch_pending(WSI.display); if rendering in the loop.
+  while (!should_exit && wl_display_dispatch(WSI.display) != -1) {
+    // Draw stuff.
 
     /*
     // weston simple does
