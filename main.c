@@ -158,6 +158,9 @@ static const struct wl_callback_listener wl_surface_frame_callback_listener = {
     .done = wl_surface_frame_done,
 };
 
+PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC eglCreatePlatformWindowSurfaceEXT;
+PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT;
+
 int main(int argc, char *argv[]) {
   WSI.display = wl_display_connect(NULL);
   assert(WSI.display);
@@ -178,10 +181,14 @@ int main(int argc, char *argv[]) {
   wl_display_dispatch(WSI.display);
 
   // initialize EGL for wayland.
+  eglCreatePlatformWindowSurfaceEXT =
+      (void *)eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
+  eglGetPlatformDisplayEXT =
+      (void *)eglGetProcAddress("eglGetPlatformDisplayEXT");
   int egl_major = 0;
   int egl_minor = 0;
   WSI.egl.display =
-      eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, WSI.display, NULL);
+      eglGetPlatformDisplayEXT(EGL_PLATFORM_WAYLAND_EXT, WSI.display, NULL);
   assert(WSI.egl.display && WSI.egl.display != EGL_NO_DISPLAY);
   assert(eglInitialize(WSI.egl.display, &egl_major, &egl_minor) == EGL_TRUE);
   assert(egl_major == 1);
@@ -198,8 +205,8 @@ int main(int argc, char *argv[]) {
   int num_configs = 0;
   eglChooseConfig(WSI.egl.display, config_attribs, configs, 256, &num_configs);
   assert(num_configs > 0);
-  WSI.egl.surface = eglCreatePlatformWindowSurface(WSI.egl.display, configs[0],
-                                                   WSI.egl.window, NULL);
+  WSI.egl.surface = eglCreatePlatformWindowSurfaceEXT(
+      WSI.egl.display, configs[0], WSI.egl.window, NULL);
   assert(WSI.egl.surface);
   WSI.egl.context = eglCreateContext(WSI.egl.display, configs[0],
                                      EGL_NO_CONTEXT, context_attribs);
