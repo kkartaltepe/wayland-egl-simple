@@ -1,6 +1,6 @@
 // clang-format off
 // Build this with:
-// $ gcc -g -o demo main.c xdg-shell-protocol.c -lwayland-client -lOpenGL -lEGL -lwayland-egl
+// $ gcc -g -o demo main.c xdg-shell-protocol.c -lwayland-client -lOpenGL -lEGL -lwayland-egl -lpthread
 // Generate the xdg-shell files from protocols with
 // $ wayland-scanner private-code < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml > xdg-shell-protocol.c
 // $ wayland-scanner client-header < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml > xdg-shell-client-protocol.h
@@ -15,9 +15,14 @@
 #include "xdg-shell-client-protocol.h" // True suffering is generated code.
 
 #include <assert.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <stdio.h>
+#include <stdlib.h>
 
 // Window system information
 struct wsi {
@@ -39,6 +44,7 @@ struct wsi {
 
 struct wsi WSI = {0};
 static bool should_exit = false;
+static bool draw_next_frame = false;
 
 // xdg_wm_base generic callbacks
 
@@ -97,6 +103,7 @@ static void global_registry_handler(void *data, struct wl_registry *registry,
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
     WSI.compositor =
         wl_registry_bind(registry, id, &wl_compositor_interface, 4);
+    WSI.surface = wl_compositor_create_surface(WSI.compositor);
   }
   if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
     WSI.wm = wl_registry_bind(registry, id, &xdg_wm_base_interface, 2);
@@ -147,16 +154,31 @@ static void wl_surface_frame_done(void *data, struct wl_callback *cb,
   // Register next frame's callback.
   cb = wl_surface_frame(WSI.surface);
   wl_callback_add_listener(cb, &wl_surface_frame_callback_listener, NULL);
-
-  // Draw the next frame.
-  glClearColor(0.2, 0.4, 0.9, 1.0);
-  glClear(GL_COLOR_BUFFER_BIT);
-  eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
+  draw_next_frame = true;
 }
 
 static const struct wl_callback_listener wl_surface_frame_callback_listener = {
     .done = wl_surface_frame_done,
 };
+
+void *render_thread(void *data) {
+  eglBindAPI(EGL_OPENGL_ES_API);
+  while (!should_exit) {
+    if (!draw_next_frame) {
+      usleep(1000);
+      continue;
+    }
+    eglMakeCurrent(WSI.egl.display, WSI.egl.surface, WSI.egl.surface,
+                   WSI.egl.context);
+    // Draw the next frame.
+    glClearColor(0.2, 0.4, 0.9, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    // Commit our surface, wl_surface_commit() alone wont work on EGL surfaces.
+    eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
+    draw_next_frame = false;
+    printf("drawing done\n");
+  }
+}
 
 PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC eglCreatePlatformWindowSurfaceEXT;
 PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT;
@@ -169,7 +191,8 @@ int main(int argc, char *argv[]) {
   wl_display_roundtrip(WSI.display);
 
   // Create our surface and add xdg_shell roles so it will be displayed.
-  WSI.surface = wl_compositor_create_surface(WSI.compositor);
+  WSI.w = 300;
+  WSI.h = 300;
   WSI.xdg_surface = xdg_wm_base_get_xdg_surface(WSI.wm, WSI.surface);
   xdg_surface_add_listener(WSI.xdg_surface, &xdg_surface_listener, NULL);
   WSI.xdg_toplevel = xdg_surface_get_toplevel(WSI.xdg_surface);
@@ -180,6 +203,9 @@ int main(int argc, char *argv[]) {
   wl_surface_commit(WSI.surface);
   wl_display_dispatch(WSI.display);
 
+  struct wl_callback *cb = wl_surface_frame(WSI.surface);
+  wl_callback_add_listener(cb, &wl_surface_frame_callback_listener, NULL);
+
   // initialize EGL for wayland.
   eglCreatePlatformWindowSurfaceEXT =
       (void *)eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
@@ -188,16 +214,16 @@ int main(int argc, char *argv[]) {
   int egl_major = 0;
   int egl_minor = 0;
   WSI.egl.display =
-      eglGetPlatformDisplayEXT(EGL_PLATFORM_WAYLAND_EXT, WSI.display, NULL);
+      eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, WSI.display, NULL);
   assert(WSI.egl.display && WSI.egl.display != EGL_NO_DISPLAY);
   assert(eglInitialize(WSI.egl.display, &egl_major, &egl_minor) == EGL_TRUE);
   assert(egl_major == 1);
   assert(egl_minor >= 5);
+  eglBindAPI(EGL_OPENGL_ES_API);
 
   // Some special platform bit to track buffer sizes I guess. Weirdest part of
   // the whole setup.
-  WSI.w = 300;
-  WSI.h = 300;
+  assert(WSI.surface);
   WSI.egl.window = wl_egl_window_create(WSI.surface, WSI.w, WSI.h);
   assert(WSI.egl.window);
 
@@ -205,8 +231,8 @@ int main(int argc, char *argv[]) {
   int num_configs = 0;
   eglChooseConfig(WSI.egl.display, config_attribs, configs, 256, &num_configs);
   assert(num_configs > 0);
-  WSI.egl.surface = eglCreatePlatformWindowSurfaceEXT(
-      WSI.egl.display, configs[0], WSI.egl.window, NULL);
+  WSI.egl.surface = eglCreatePlatformWindowSurface(WSI.egl.display, configs[0],
+                                                   WSI.egl.window, NULL);
   assert(WSI.egl.surface);
   WSI.egl.context = eglCreateContext(WSI.egl.display, configs[0],
                                      EGL_NO_CONTEXT, context_attribs);
@@ -216,14 +242,12 @@ int main(int argc, char *argv[]) {
 
   // Read to start drawing, kick off the render callback.
   eglSwapInterval(WSI.egl.display, 0); // GO FAST
+  eglMakeCurrent(WSI.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                 EGL_NO_CONTEXT);
   // Draw the next frame.
-  glClearColor(0.2, 0.4, 0.9, 1.0);
-  glClear(GL_COLOR_BUFFER_BIT);
-  // Commit our surface, wl_surface_commit() alone wont work on EGL surfaces.
-  eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
-
-  struct wl_callback *cb = wl_surface_frame(WSI.surface);
-  wl_callback_add_listener(cb, &wl_surface_frame_callback_listener, NULL);
+  draw_next_frame = true;
+  pthread_t rthread;
+  assert(pthread_create(&rthread, NULL, render_thread, NULL) == 0);
 
   // process any pending events from swapbuffers.
   // wl_display_dispatch_pending(WSI.display); if rendering in the loop.
