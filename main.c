@@ -48,6 +48,10 @@ static bool draw_next_frame = false;
 PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC eglCreatePlatformWindowSurfaceEXT;
 PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT;
 
+typedef void(APIENTRYP CLEARCOLOR)(GLclampf red, GLclampf green, GLclampf blue,
+                                   GLclampf alpha);
+typedef void(APIENTRYP CLEAR)(GLbitfield mask);
+
 // xdg_wm_base generic callbacks
 
 static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
@@ -155,6 +159,7 @@ static void wl_surface_frame_done(void *data, struct wl_callback *cb,
   // Mark callback handled.
   wl_callback_destroy(cb);
 
+
   // Register next frame's callback.
   cb = wl_surface_frame(WSI.surface);
   wl_callback_add_listener(cb, &wl_surface_frame_callback_listener, NULL);
@@ -165,9 +170,6 @@ static const struct wl_callback_listener wl_surface_frame_callback_listener = {
     .done = wl_surface_frame_done,
 };
 
-typedef void(APIENTRYP CLEARCOLOR)(GLclampf red, GLclampf green, GLclampf blue,
-                                   GLclampf alpha);
-typedef void(APIENTRYP CLEAR)(GLbitfield mask);
 
 void *render_thread(void *data) {}
 
@@ -211,6 +213,10 @@ int main(int argc, char *argv[]) {
     eglBindAPI(EGL_OPENGL_API);
   }
 
+  // load some opengl functions like mpv.
+  CLEARCOLOR ClearColor = (CLEARCOLOR)eglGetProcAddress("glClearColor");
+  CLEAR Clear = (CLEAR)eglGetProcAddress("glClear");
+
   int num_configs = 0;
   eglChooseConfig(WSI.egl.display, config_attribs, configs, 256, &num_configs);
   assert(num_configs > 0);
@@ -237,15 +243,13 @@ int main(int argc, char *argv[]) {
   eglMakeCurrent(WSI.egl.display, WSI.egl.surface, WSI.egl.surface,
                  WSI.egl.context);
 
-  // load some opengl functions like mpv.
-  CLEARCOLOR ClearColor = (CLEARCOLOR)eglGetProcAddress("glClearColor");
-  CLEAR Clear = (CLEAR)eglGetProcAddress("glClear");
 
-  eglSwapInterval(WSI.egl.display, 0);
+  eglSwapInterval(WSI.egl.display, 1);
   while (!should_exit && wl_display_dispatch_pending(WSI.display) != -1) {
     ClearColor(0.2, 0.4, 0.9, 1.0);
     Clear(GL_COLOR_BUFFER_BIT);
     eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
+	  // left empty
   }
 
   return 0;

@@ -127,9 +127,11 @@ int main(int argc, char *argv[]) {
   xcb_map_window(WSI.connection, WSI.window);
   xcb_flush(WSI.connection);
 
+  /*
   // This call corrupts the context.
   eglMakeCurrent(WSI.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
                  WSI.egl.context);
+  */
 
   WSI.egl.surface = eglCreatePlatformWindowSurface(WSI.egl.display, configs[0],
                                                    &WSI.window, NULL);
@@ -142,10 +144,17 @@ int main(int argc, char *argv[]) {
   CLEAR Clear = (CLEAR)eglGetProcAddress("glClear");
 
   eglSwapInterval(WSI.egl.display, 0);
+  GLuint tex;
   while (!should_exit) {
-    usleep(10000);
+    usleep(1000);
     ClearColor(0.2, 0.4, 0.9, 1.0);
     Clear(GL_COLOR_BUFFER_BIT);
+    glGenTextures(1, &tex);
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, 2560, 1440, 0,  GL_BGRA,  GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    glDeleteTextures(1, &tex);
+	glBindTexture(GL_TEXTURE_2D, 0);
     eglSwapBuffers(WSI.egl.display, WSI.egl.surface);
   }
 
